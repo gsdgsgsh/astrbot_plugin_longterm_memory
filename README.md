@@ -312,7 +312,7 @@ docker logs <容器名> 2>&1 | grep -iE "Cleared KV data|Deleted persistent data
 
 ## 📄 许可证
 
-[MIT](./LICENSE) © 2026 Super Z
+[MIT](./LICENSE) © 2026 gsdgsgsh
 
 ## 🤝 贡献
 
