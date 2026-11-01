@@ -1,3 +1,6 @@
+# 可选依赖 —— 注意：AstrBot **不会**读取本文件（源码只认 requirements.txt），
+# 它纯属给使用者的安装清单，需要时手动执行：
+#     pip install -r requirements-optional.txt
 # 可选依赖（按需手动安装，不影响核心功能）
 # 启用 ChromaDB 向量后端（chromadb_enabled=true）时需要：
 chromadb>=0.4.0
