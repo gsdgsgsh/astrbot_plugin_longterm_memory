@@ -1,0 +1,3 @@
+# 必选依赖（插件核心功能必需）
+# 注：自 v2.9.0 起管理界面已并入 AstrBot Dashboard，不再需要 aiohttp
+numpy>=1.24.0

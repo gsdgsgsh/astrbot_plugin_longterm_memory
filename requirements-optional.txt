@@ -1,0 +1,7 @@
+# 可选依赖（按需手动安装，不影响核心功能）
+# 启用 ChromaDB 向量后端（chromadb_enabled=true）时需要：
+chromadb>=0.4.0
+# 说明：本插件用到的 API（chromadb.config.Settings / PersistentClient /
+# Collection.query(include=[...])）在 1.5.x 中依然存在，已在 1.5.9 上核对过签名。
+# 注意：开启 chromadb_enabled 后，请到「总览 → 嵌入诊断」点一次
+# 「🔄 回填向量到 ChromaDB」，否则切换前已有的记忆不会进入向量集合。

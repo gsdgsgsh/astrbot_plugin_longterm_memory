@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>长期记忆</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">🧠 <b>长期记忆</b><span class="sub" id="scopeHint"></span></div>
+    <div class="spacer"></div>
+    <select id="scopeSelect" class="scope" title="选择会话作用域"></select>
+    <button id="refreshBtn" class="btn" title="刷新">刷新</button>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-tab="overview">总览</button>
+    <button class="tab" data-tab="memories">记忆</button>
+    <button class="tab" data-tab="profile">画像</button>
+    <button class="tab" data-tab="affection">好感度</button>
+    <button class="tab" data-tab="config">配置</button>
+  </nav>
+
+  <main id="view"><div class="empty">加载中…</div></main>
+
+  <div id="jobBar" class="jobbar" hidden>
+    <span id="jobText">准备中…</span>
+    <div class="bar-track"><i id="jobFill" style="width:0%"></i></div>
+  </div>
+
+  <div id="toasts"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

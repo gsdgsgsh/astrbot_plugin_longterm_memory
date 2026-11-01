@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 测试与缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 开发内部文档（不随仓库发布）
+AGENTS.md
+
+# 本机/编辑器
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 运行时数据（插件自身不写这些，防止误提交）
+data/
+logs/
+*.db
+*.sqlite3
+*.log

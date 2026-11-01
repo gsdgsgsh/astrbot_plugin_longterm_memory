@@ -1,0 +1,261 @@
+{
+  "embedding_provider_id": {
+    "description": "[embedding_provider_id] Embedding 服务提供商 ID（留空自动选择）",
+    "type": "string",
+    "default": ""
+  },
+  "summary_fallback_provider_id": {
+    "type": "string",
+    "default": "",
+    "description": "[summary_fallback_provider_id] 总结专用 LLM Provider ID（留空自动选择第一个可用的 LLM Provider）"
+  },
+  "enable_rerank": {
+    "description": "[enable_rerank] 是否启用重排模型优化检索排序",
+    "type": "bool",
+    "default": false
+  },
+  "rerank_provider_id": {
+    "description": "[rerank_provider_id] 重排模型服务提供商 ID（留空自动选择）",
+    "type": "string",
+    "default": ""
+  },
+  "llm_timeout_seconds": {
+    "description": "[llm_timeout_seconds] LLM 调用超时时间（秒）",
+    "type": "int",
+    "default": 120,
+    "hint": "总结/画像/记忆重整都走这个超时。单批结构化输出较慢，60 秒容易超时（表现为日志里『失败: 』后面空白），建议 120"
+  },
+  "llm_max_retries": {
+    "description": "[llm_max_retries] LLM 调用失败最大重试次数",
+    "type": "int",
+    "default": 2
+  },
+
+  "memory_scope": {
+    "description": "[memory_scope] 记忆隔离范围",
+    "type": "string",
+    "default": "conversation",
+    "options": ["user", "group_user", "user_bot", "conversation"],
+    "hint": "conversation: 按 AstrBot 会话隔离（推荐，同一用户的每个对话各自拥有独立记忆/画像）；user: 按 unified_msg_origin 隔离（所有对话共享）；group_user: 按 group_id + user_id 隔离；user_bot: 在 user 基础上进一步按机器人 self_id 隔离"
+  },
+  "memory_limit": {
+    "description": "[memory_limit] 每个用户/会话最大记忆条数（超过上限时按 memory_eviction_strategy 淘汰）",
+    "type": "int",
+    "default": 500,
+    "hint": "建议 200-2000。每条总结记忆约 50-200 字，500 条约等于一本书的容量"
+  },
+  "memory_eviction_strategy": {
+    "description": "[memory_eviction_strategy] 记忆淘汰策略：importance=按留存价值淘汰（推荐），fifo=按时间淘汰最旧的",
+    "type": "string",
+    "default": "importance",
+    "options": ["importance", "fifo"],
+    "hint": "importance：留存价值 = 0.55×重要性 + 0.45×新鲜度，再乘类型权重（总结 1.0 / 原始 0.6）。避免姓名、生日这类关键记忆被无关的新记忆挤掉；fifo 为旧版行为"
+  },
+  "keep_raw_messages": {
+    "description": "[keep_raw_messages] 是否保留原始对话记录（仅存档，不参与向量检索）",
+    "type": "bool",
+    "default": false
+  },
+
+  "retrieve_top_k": {
+    "description": "[retrieve_top_k] 每次检索返回的最相似记忆数量",
+    "type": "int",
+    "default": 3
+  },
+  "similarity_threshold": {
+    "description": "[similarity_threshold] 检索记忆时的相似度阈值（0.0-1.0）",
+    "type": "float",
+    "default": 0.7
+  },
+  "retrieve_diversity_lambda": {
+    "description": "[retrieve_diversity_lambda] 检索结果多样性系数 (0~1)：在「相关」与「不重复」之间的折中。1=只按相关性排序（可能召回多条讲同一件事的记忆），越小越分散",
+    "type": "float",
+    "default": 0.7,
+    "hint": "0.7 表示相关性占 70% 权重、去重占 30%。无论该项取值如何，与已选项相似度 ≥0.95 的近重复记忆都会被剔除"
+  },
+  "context_window_tokens": {
+    "description": "[context_window_tokens] 模型上下文窗口大小（tokens）。当前对话 token 数达到 75% 时启用记忆检索。设为 0 则自动从 Provider 检测",
+    "type": "int",
+    "default": 0,
+    "hint": "0=自动检测（推荐）。常见模型无需手动设置。仅当自动检测失败时才需手动指定"
+  },
+  "chromadb_enabled": {
+    "description": "[chromadb_enabled] 启用 ChromaDB 作为向量存储后端（替代 NumPy+KV）。需 pip install chromadb",
+    "type": "bool",
+    "default": false,
+    "hint": "嵌入式运行无需外部服务。启用后向量检索更快、元数据过滤更灵活"
+  },
+  "memory_decay_enabled": {
+    "description": "[memory_decay_enabled] 启用记忆衰减曲线：越久远的记忆检索权重越低，模拟人类遗忘",
+    "type": "bool",
+    "default": true
+  },
+  "memory_decay_lambda": {
+    "description": "[memory_decay_lambda] 记忆衰减系数 λ。值越大遗忘越快。final_score = cosine_sim × e^(-λ × 天数)",
+    "type": "float",
+    "default": 0.02,
+    "hint": "0.02 约 35 天后权重减半；0.05 约 14 天减半；0.1 约 7 天减半；0 为不衰减"
+  },
+  "memory_inject_position": {
+    "description": "[memory_inject_position] 记忆注入位置。推荐 extra_user_content（本轮有效、不持久化，且不破坏模型 prompt 缓存）；system_prompt 每轮变化会显著增加成本与首 token 延迟",
+    "type": "string",
+    "default": "extra_user_content",
+    "options": ["extra_user_content", "system_prompt"]
+  },
+  "memory_importance_enabled": {
+    "description": "[memory_importance_enabled] 启用记忆重要性评分：LLM 总结时为记忆打分(1-5)，检索时高分优先",
+    "type": "bool",
+    "default": true
+  },
+  "memory_importance_weight": {
+    "description": "[memory_importance_weight] 重要性在检索排序中的权重 (0-1)，0=不影响，1=完全按重要性排序",
+    "type": "float",
+    "default": 0.3
+  },
+  "memory_conflict_detection_enabled": {
+    "description": "[memory_conflict_detection_enabled] 启用记忆冲突检测：新总结与已有记忆高度相似时，用 LLM 判断是否更新/合并",
+    "type": "bool",
+    "default": true
+  },
+  "max_single_memory_chars": {
+    "description": "[max_single_memory_chars] 单条记忆注入时的最大字符数（超出截断）",
+    "type": "int",
+    "default": 200
+  },
+  "max_memory_context_length": {
+    "description": "[max_memory_context_length] 注入到 LLM 的记忆上下文总长度上限（字符数）",
+    "type": "int",
+    "default": 2000
+  },
+
+  "summary_trigger_rounds": {
+    "description": "[summary_trigger_rounds] 触发 LLM 总结的用户消息数",
+    "type": "int",
+    "default": 5
+  },
+  "summary_topic_boundary_enabled": {
+    "description": "[summary_topic_boundary_enabled] 话题边界感知：在收尾语处立即总结，并在话题仍在延续时短暂延后总结",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后：① 用户说「就这样/晚安/改天聊」时立即总结（天然的话题边界）；② 轮数达标但语义上同一话题仍在延续时，最多延后 3 轮再总结。目的是减少「同一话题被切到两次总结里」"
+  },
+  "summary_interval_seconds": {
+    "description": "[summary_interval_seconds] 触发 LLM 总结的时间间隔（秒）",
+    "type": "int",
+    "default": 300
+  },
+  "min_summary_rounds": {
+    "description": "[min_summary_rounds] 时间触发总结时，缓冲区至少包含的用户消息轮数",
+    "type": "int",
+    "default": 2
+  },
+  "summary_prompt_template": {
+    "description": "[summary_prompt_template] 自定义 LLM 总结 prompt 模板（必须包含 {对话历史} 占位符）",
+    "type": "text",
+    "default": "请总结以下对话中值得长期记住的信息（用户的事实、偏好、习惯、重要事件、约定等）。\n对话内容：\n{对话历史}",
+    "hint": "必须包含 {对话历史}。注意：插件会自动追加「按话题拆分输出 JSON」的要求与已有记忆，无需在此重复"
+  },
+
+  "profile_enabled": {
+    "type": "bool",
+    "default": false,
+    "description": "[profile_enabled] 启用用户画像功能"
+  },
+  "persona_drift_enabled": {
+    "type": "bool",
+    "default": false,
+    "description": "[persona_drift_enabled] 启用角色状态变化检测：LLM 对比人设与最近记忆，发现角色关键状态变化时通知用户确认更新"
+  },
+  "min_profile_summaries": {
+    "type": "int",
+    "default": 3,
+    "description": "[min_profile_summaries] 触发画像自动更新最少需要的新增总结条数",
+    "hint": "设为 1 时每条新总结都触发（兼容旧行为）"
+  },
+  "profile_update_interval_hours": {
+    "type": "int",
+    "default": 12,
+    "description": "[profile_update_interval_hours] 用户画像自动更新间隔（小时）。距离上次更新超过此间隔且存在新增对话总结时，才会触发下一次自动更新",
+    "hint": "设为 0 时每次有新总结都立即更新（兼容旧行为）"
+  },
+  "profile_prompt_template": {
+    "description": "[profile_prompt_template] 用户画像生成提示词模板（必须包含 {现有画像} 与 {记忆列表} 占位符）",
+    "type": "text",
+    "default": "根据以下记忆总结，在【现有画像】的基础上做**增补与修正**：\n\n1. **先保留**现有画像中仍然有效的条目——即使本次记忆没有提到，也不要删除\n2. 再根据【记忆总结】补充新特征；与现有内容重复的合并成一条\n3. 只有当新记忆**明确推翻**旧信息时，才修改/替换旧条目\n4. 只记录**实际用户**的真实信息，忽略角色扮演设定、虚构情节或故事内容\n5. 禁止记录「核心意图」「当前任务」「待解决问题」，也不要记录助手的待办\n\n输出要求：\n- 每行一条，以 \"- \" 开头，形如 `- 姓名: xxx` / `- 性格: xxx` / `- 兴趣: xxx` / `- 偏好: xxx` / `- 重要事实: xxx`\n- 每条不超过 40 字，**总共不超过 25 条**（总长度不超过 800 字）\n- 不要写成段落\n\n现有画像：{现有画像}\n\n记忆总结：\n{记忆列表}",
+    "hint": "必须包含 {现有画像} 和 {记忆列表} 占位符"
+  },
+  "profile_inject_position": {
+    "type": "string",
+    "default": "extra_user_content",
+    "options": ["extra_user_content", "system_prompt"],
+    "description": "[profile_inject_position] 画像注入位置。推荐 extra_user_content（本轮有效、不持久化，且不破坏模型 prompt 缓存）"
+  },
+  "profile_max_chars": {
+    "type": "int",
+    "default": 1200,
+    "description": "[profile_max_chars] 画像**注入时**的最大字符数（超出才截断）",
+    "hint": "只影响注入长度，不会再截断保存内容——画像是完整存下来的"
+  },
+
+  "affection_enabled": {
+    "description": "[affection_enabled] 启用亲密度系统（追踪用户与助手的关系远近，并影响回复语气）",
+    "type": "bool",
+    "default": false,
+    "hint": "评分取向：加分靠「自我表露（分享经历/感受/计划）、引用共同历史、有实质内容的深入交流」；礼貌用语（谢谢、夸奖）权重很低且连续出现会递减——不需要为了涨分去讨好 AI。回复简短、提出不同意见、指出助手答错都不扣分，只有明确敌意（辱骂、『别烦我』）才扣分"
+  },
+  "affection_eval_cooldown_seconds": {
+    "description": "[affection_eval_cooldown_seconds] LLM 好感度评估最小间隔（秒），避免频繁调用",
+    "type": "int",
+    "default": 180,
+    "hint": "越小评估越频繁、涨得越快；180 约等于每 3 分钟最多评估一次"
+  },
+  "affection_ema_alpha": {
+    "description": "[affection_ema_alpha] 好感度增益系数 (0-1)：每次评估实际落地的增量比例，越大涨/跌越快",
+    "type": "float",
+    "default": 0.4,
+    "hint": "实际每步变化 = 系数 × LLM增量(±3) × 难度系数。0.4 时 LLM 给 +2 约等于 +0.8 分"
+  },
+  "affection_daily_cap": {
+    "description": "[affection_daily_cap] 每日好感度变化绝对值上限",
+    "type": "float",
+    "default": 30.0,
+    "hint": "这是重度使用时的实际上限；一天最多涨/跌这么多分。注意：手动设定与 AI 重新评估属于「修正」，不受此上限限制"
+  },
+  "affection_rule_eval_rounds": {
+    "description": "[affection_rule_eval_rounds] 规则引擎最少间隔轮数（累计 N 轮对话后才触发一次规则评估）",
+    "type": "int",
+    "default": 5,
+    "hint": "设为 1 时每条消息都触发（不推荐，增长过快）"
+  },
+  "affection_difficulty_divisor": {
+    "description": "[affection_difficulty_divisor] 边际递减除数：分数越高涨得越慢。公式 difficulty=max(0.1, 1-|score|/divisor)，值**越小**曲线越陡（越难涨）",
+    "type": "float",
+    "default": 200.0,
+    "hint": "200 意味着 score=60 时增速降为 70%，score=100 时降为 50%（比 120 更平缓）"
+  },
+  "affection_inject_position": {
+    "description": "[affection_inject_position] 好感度上下文注入位置",
+    "type": "string",
+    "default": "extra_user_content",
+    "options": ["extra_user_content", "system_prompt"]
+  },
+  "affection_analysis_prompt_template": {
+    "description": "[affection_analysis_prompt_template] LLM 好感度分析 prompt 模板（必须输出 JSON: {\"delta\": 数值, \"reason\": \"原因\"}）",
+    "type": "text",
+    "default": "请评估用户与助手之间的**关系亲密度**变化（注意：不是\"用户有多捧助手\"）。\n输出 JSON：\n{\"delta\": 数值(-3到3), \"reason\": \"简短原因(15字内)\"}\n\n这个分数衡量的是「关系有多近」。请按下面的取向打分：\n\n【加分：关系在变近的行为】\n+0.5~+1.5  用户主动分享自己的经历、感受、计划、困扰（自我表露 = 信任）\n+0.5~+1.0  用户引用双方共同的历史（\"上次你说的\"\"还记得\"），说明关系有连续性\n+0.3~+0.8  有实质内容的深入交流，或主动追问、延展话题\n+0.1~+0.3  礼貌与暖意（谢谢、辛苦了、夸奖、哈哈哈）——**只是社交润滑，不要给高分**\n\n【0 分：正常交流，一律不扣分】\n- 用户回复简短（「嗯」「哦」「好的」「行」「?」「…」）——可能只是没意见或在忙\n- 用户提出不同意见、指出助手答错、纠正助手——这是正常且健康的交流\n- 用户因**助手的回复不佳**而无话可说——责任不在用户\n- 普通问答、没有明显情感倾向\n\n【扣分：仅限明确的敌意】\n-0.5~-1.5  用户明确表达厌烦/失望/被冒犯（如\"闭嘴\"\"别烦我\"\"受够了\"）\n-2~-3      用户辱骂、人身攻击\n\n【重要】\n- 判断依据是用户**实际表达的内容**，不是回复长度、字数或礼貌程度\n- 不要因为用户没夸奖助手就给低分；也不要因为用户夸奖就大幅加分\n- 没有把握时一律给 0，宁可漏判也不要误扣\n\n对话内容：\n{对话历史}\n\n请输出 JSON：",
+    "hint": "必须包含 {对话历史} 占位符，LLM 必须输出 JSON 格式"
+  },
+  "affection_level_thresholds": {
+    "description": "[affection_level_thresholds] 好感等级阈值配置",
+    "type": "object",
+    "items": {
+      "nemesis_max": {"description": "仇敌上限", "type": "int", "default": -71},
+      "hostile_max": {"description": "敌对上限", "type": "int", "default": -41},
+      "cold_max": {"description": "冷淡上限", "type": "int", "default": -11},
+      "stranger_max": {"description": "陌生人上限", "type": "int", "default": 10},
+      "acquaintance_max": {"description": "熟人上限", "type": "int", "default": 30},
+      "friend_max": {"description": "朋友上限", "type": "int", "default": 55},
+      "close_friend_max": {"description": "好友上限", "type": "int", "default": 75}
+    }
+  }
+}
