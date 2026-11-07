@@ -244,7 +244,6 @@ document.getElementById('tokenInput').addEventListener('keydown', e => { if(e.ke
         ("affection_difficulty_divisor", 120.0, 200.0),
         ("affection_eval_cooldown_seconds", 300, 180),
         ("profile_max_chars", 500, 1200),
-        ("llm_timeout_seconds", 60, 120),
     ]
     # 提示词类：只有内容里仍带"旧版特征串"时才替换（用户改写过就不会命中）
     _STALE_PROMPT_MARKERS = [
@@ -574,10 +573,18 @@ document.getElementById('tokenInput').addEventListener('keydown', e => { if(e.ke
                     pass  # 获取会话失败时回退到正常流程
 
             # 旁路注入（始终执行，开销可忽略：纯 KV 读取 + 字符串拼接）
+            # 顺便统计本轮注入体积：mark_as_temp 的内容不落历史，但每次请求仍要付这部分 token
+            _inj = {"profile": 0, "affection": 0, "memory": 0}
+            _c0 = self._request_injected_chars(req)
             await self._inject_profile(event, req, scope_id)
+            _c1 = self._request_injected_chars(req)
             await self._inject_affection(event, req, scope_id)
+            _c2 = self._request_injected_chars(req)
+            _inj["profile"] = max(0, _c1 - _c0)
+            _inj["affection"] = max(0, _c2 - _c1)
 
             if skip_retrieval:
+                self._log_injection_cost(scope_id, _inj, skip_retrieval=True)
                 return
 
             # ---- 记忆检索与注入（仅在上下文足够长时执行） ----
@@ -592,6 +599,7 @@ document.getElementById('tokenInput').addEventListener('keydown', e => { if(e.ke
 
             if not memories:
                 logger.info(f"[长期记忆] 未检索到相关记忆 (scope={scope_id})")
+                self._log_injection_cost(scope_id, _inj)
                 return
 
             ctx = self._build_memory_context(memories)
@@ -607,8 +615,40 @@ document.getElementById('tokenInput').addEventListener('keydown', e => { if(e.ke
                 ok = self._inject_extra_content(req, "[系统注入的历史记忆上下文]\n" + ctx)
                 if not ok:
                     logger.debug("[长期记忆] extra_user_content 不可用，记忆已降级为 system_prompt 注入")
+            _inj["memory"] = len(ctx)
+            self._log_injection_cost(scope_id, _inj)
         except Exception as e:
             logger.warning(f"注入记忆出错: {traceback.format_exc()}")
+
+    # ========== 注入开销统计 ==========
+    @staticmethod
+    def _request_injected_chars(req) -> int:
+        """统计「由本插件注入」的字符数：extra_user_content_parts + system_prompt 兜底。
+
+        只用于**求差**（注入前后各测一次），因此 system_prompt 里原有的
+        persona 等内容会被差值消掉，不会计入插件开销。
+        """
+        total = len(getattr(req, "system_prompt", "") or "")
+        parts = getattr(req, "extra_user_content_parts", None) or []
+        for p in parts:
+            total += len(getattr(p, "text", "") or "")
+        return total
+
+    def _log_injection_cost(self, scope_id: str, inj: dict, skip_retrieval: bool = False):
+        """打印本轮注入体积。
+
+        只统计插件注入的部分（画像/好感度/记忆）。主对话历史由 AstrBot 决定，
+        不在统计内——那通常才是 token 的大头。
+        """
+        total = sum(int(v or 0) for v in inj.values())
+        if total <= 0:
+            return
+        logger.info(
+            f"[长期记忆] 📊 本轮注入 {total} 字符"
+            f"（画像 {inj.get('profile', 0)} / 好感度 {inj.get('affection', 0)}"
+            f" / 记忆 {inj.get('memory', 0)}）≈{int(total * 0.7)} tokens"
+            + (" | 对话较短，跳过记忆检索" if skip_retrieval else "")
+        )
 
     @filter.on_llm_response()
     async def on_llm_response(self, event: AstrMessageEvent, resp: LLMResponse):

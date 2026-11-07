@@ -30,6 +30,12 @@ _BACKREF_RE = re.compile(
 # 连续性上下文窗口：常规 8 条，检测到回溯语时放宽到 15 条
 _CONTINUITY_WINDOW = 8
 _CONTINUITY_WINDOW_BACKREF = 15
+
+# 画像更新失败退避：超时/异常后按指数退避，避免"每条消息都重试同一个大 prompt"。
+# 实测一次画像更新 prompt 约 3~5k 字符（≈3.5k tokens），Provider 忙时必然超时，
+# 若不做退避会形成死循环——每次 60s 超时 + 全量重发，纯烧 token。
+_PROFILE_BACKOFF_BASE = 120.0
+_PROFILE_BACKOFF_MAX = 1800.0
 # 冲突合并的相似度阈值
 _CONFLICT_SIM_DEFAULT = 0.85
 _CONFLICT_SIM_BACKREF = 0.55
@@ -368,11 +374,17 @@ class EngineMixin:
                 return True
 
             except asyncio.TimeoutError:
-                logger.warning(f"[长期记忆] 总结超时 (attempt {attempt+1})")
+                # 超时说明 Provider 忙或 prompt 过大：立即重试只会重复烧掉同样的 token。
+                # 缓冲区保留，等下次触发自然重试即可。
+                logger.warning(
+                    f"[长期记忆] 总结超时 (attempt {attempt+1}/{max_retries+1}，"
+                    f"prompt {len(prompt)/1000.0:.1f}k 字符)，放弃本轮重试"
+                )
+                break
             except Exception as e:
                 logger.warning(f"[长期记忆] 总结失败: {e}")
-            if attempt < max_retries:
-                await asyncio.sleep(2)
+                if attempt < max_retries:
+                    await asyncio.sleep(min(2 ** attempt, 8))
 
         logger.warning("[长期记忆] 总结最终失败，缓冲区保留")
         return False
@@ -916,6 +928,21 @@ class EngineMixin:
         if not self._get_config("profile_enabled", False):
             return
 
+        # ---- 失败退避（指数）----
+        # 注意：不能靠 profile_last_update 来节流——它只在**成功**时写入，
+        # 超时后时间戳不变，下一条消息会立刻重试，形成死循环。
+        fail_state = getattr(self, "_profile_fail_state", None)
+        if fail_state is None:
+            self._profile_fail_state = {}
+            fail_state = self._profile_fail_state
+        fails, next_try = fail_state.get(scope_id, (0, 0.0))
+        if next_try and time.time() < next_try:
+            logger.debug(
+                f"[长期记忆] 画像更新退避中（已失败 {fails} 次，"
+                f"剩余 {int(next_try - time.time())}s）: {scope_id}"
+            )
+            return
+
         interval_hours = self._get_config("profile_update_interval_hours", 12)
         # interval_hours == 0 表示每次有新总结都更新（旧行为），跳过时间检查
         if interval_hours > 0:
@@ -953,16 +980,36 @@ class EngineMixin:
             f"[长期记忆] 触发画像更新：{len(new_summaries)} 条新总结 "
             f"(scope={scope_id}, anchor={anchor:.0f})"
         )
-        await self._update_profile(scope_id, event, new_summaries)
+        # 重试时压缩单条长度（200→120 字符），降低单次请求体积与超时概率
+        per_item_chars = 200 if fails == 0 else 120
+        ok = await self._update_profile(
+            scope_id, event, new_summaries, per_item_chars=per_item_chars
+        )
+        if ok:
+            fail_state.pop(scope_id, None)
+        else:
+            fails += 1
+            delay = min(_PROFILE_BACKOFF_BASE * (2 ** (fails - 1)), _PROFILE_BACKOFF_MAX)
+            fail_state[scope_id] = (fails, time.time() + delay)
+            logger.warning(
+                f"[长期记忆] 画像更新第 {fails} 次失败，{int(delay)}s 后再试 "
+                f"(scope={scope_id})"
+            )
 
-    async def _update_profile(self, scope_id, event=None, new_summaries=None, max_items: int = 20):
+    async def _update_profile(self, scope_id, event=None, new_summaries=None,
+                              max_items: int = 20, per_item_chars: int = 200) -> bool:
+        """更新画像。返回 True=成功（或无需更新），False=本次失败（调用方据此退避）。
+
+        per_item_chars：每条总结喂给 LLM 的截断长度。失败重试时调用方会调小它，
+        以降低单次请求体积与耗时——超时多因 prompt 太大 + Provider 忙，而不是内容问题。
+        """
         try:
             if new_summaries is None:
                 # 兼容手动 /画像 更新：使用全部 summary
                 memories = await self._load_memories(scope_id)
                 new_summaries = [m for m in memories if m.get("type") == "summary" and m.get("text")]
             if not new_summaries:
-                return
+                return True
 
             summary_texts = [m["text"] for m in new_summaries]
             existing = await self._load_profile(scope_id)
@@ -979,8 +1026,9 @@ class EngineMixin:
             )
             # max_items 只影响喂给 LLM 的记忆条数（重建画像时用更大的窗口）
             items_window = summary_texts[-max(1, int(max_items)):]
+            _cap = max(40, int(per_item_chars))
             prompt = template.replace("{现有画像}", existing or "无").replace(
-                "{记忆列表}", "\n".join(f"- {s[:200]}" for s in items_window)
+                "{记忆列表}", "\n".join(f"- {s[:_cap]}" for s in items_window)
             )
             umo = scope_id
             if event:
@@ -989,7 +1037,7 @@ class EngineMixin:
                 except Exception: pass
             provider_id = await self._get_llm_provider_id(umo)
             if not provider_id:
-                return
+                return False
             timeout = self._get_config("llm_timeout_seconds", 60)
             resp = await asyncio.wait_for(
                 self.context.llm_generate(chat_provider_id=provider_id, prompt=prompt),
@@ -1010,10 +1058,14 @@ class EngineMixin:
                     f"{len(profile)} 字符 / {lines} 行 | anchor={max_ts:.0f}"
                     f" | {profile[:60]}..."
                 )
+                return True
+            return False
         except asyncio.TimeoutError:
-            logger.warning("[长期记忆] 画像更新超时")
+            logger.warning("[长期记忆] 画像更新超时（prompt {:.1f}k 字符）".format(len(prompt) / 1000.0))
+            return False
         except Exception as e:
             logger.warning(f"[长期记忆] 画像更新失败: {e}")
+            return False
 
     # 画像注入（提供给主流程调用）
     async def _inject_profile(self, event, req, scope_id: str = ""):

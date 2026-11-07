@@ -1,7 +1,7 @@
 name: astrbot_plugin_longterm_memory
 display_name: 长期记忆插件
 desc: 基于 LLM 总结 + 向量检索 + 用户画像的长期记忆插件。自动总结对话、提取画像、智能注入上下文。
-version: 1.0.0
+version: 1.0.1
 author: gsdgsgsh
 repository: https://github.com/gsdgsgsh/astrbot_plugin_longterm_memory
 astrbot_version: ">=4.26.0"

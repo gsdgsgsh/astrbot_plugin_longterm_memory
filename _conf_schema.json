@@ -22,8 +22,7 @@
   "llm_timeout_seconds": {
     "description": "[llm_timeout_seconds] LLM 调用超时时间（秒）",
     "type": "int",
-    "default": 120,
-    "hint": "总结/画像/记忆重整都走这个超时。单批结构化输出较慢，60 秒容易超时（表现为日志里『失败: 』后面空白），建议 120"
+    "default": 60
   },
   "llm_max_retries": {
     "description": "[llm_max_retries] LLM 调用失败最大重试次数",
